@@ -49,6 +49,7 @@ nav:
     - Deep Learning Analogy: guide/dl-analogy.md
   - Extension Guides:
     - Add a New Benchmark: guide/new-benchmark.md
+    - Local Environment Smoke Tests: guide/local-env-smoke.md
     - Add a New Model Backend: guide/new-backend.md
   - Reference:
     - Configuration Reference: reference/config.md

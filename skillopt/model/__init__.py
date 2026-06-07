@@ -142,6 +142,7 @@ def chat_target(
             retries=retries,
             stage=stage,
             reasoning_effort=reasoning_effort,
+            timeout=timeout,
         )
     if get_target_backend() == "minimax_chat":
         return _minimax.chat_target(
@@ -249,6 +250,7 @@ def chat_target_messages(
             tools=tools,
             tool_choice=tool_choice,
             return_message=return_message,
+            timeout=timeout,
         )
     if get_target_backend() == "minimax_chat":
         return _minimax.chat_target_messages(

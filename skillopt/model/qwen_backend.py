@@ -191,7 +191,8 @@ def _chat_messages_impl(
         "messages": _json_safe(messages),
         "max_tokens": min(max_completion_tokens, config.max_tokens),
     }
-    payload["chat_template_kwargs"] = {"enable_thinking": config.enable_thinking}
+    if config.enable_thinking:
+        payload["chat_template_kwargs"] = {"enable_thinking": True}
     if config.temperature is not None:
         payload["temperature"] = config.temperature
     if tools:

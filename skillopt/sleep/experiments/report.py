@@ -33,7 +33,7 @@ def _fmt_model(backend: str, model: str) -> str:
 
 
 def render(rows: List[Dict[str, Any]]) -> str:
-    direct = [r for r in rows if r.get("cfg", {}).get("kind") == "direct" and "error" not in r]
+    direct = [r for r in rows if r.get("cfg", {}).get("kind") in ("direct", "dual") and "error" not in r]
     transfer = [r for r in rows if r.get("cfg", {}).get("kind") == "transfer" and "error" not in r]
     errors = [r for r in rows if "error" in r]
 
@@ -47,13 +47,19 @@ def render(rows: List[Dict[str, Any]]) -> str:
     out.append("")
 
     # ── direct improvement table ──────────────────────────────────────────
-    out.append("## Direct improvement (optimize and deploy on the same model)")
+    out.append("## Direct improvement (optimize, then deploy)")
     out.append("")
-    out.append("| Backend:Model | Seed | Held-out before | Held-out after | Nights | Tokens |")
+    out.append("| Optimizer → Target | Seed | Held-out before | Held-out after | Nights | Tokens |")
     out.append("|---|---|---|---|---|---|")
     for r in direct:
         c = r["cfg"]
-        out.append(f"| {_fmt_model(c['backend'], c.get('model',''))} | {c['seed']} | "
+        if c.get("kind") == "dual":
+            label = (f"{_fmt_model(c['optimizer_backend'], c.get('optimizer_model',''))}"
+                     f" → {_fmt_model(c['target_backend'], c.get('target_model',''))}")
+        else:
+            m = _fmt_model(c["backend"], c.get("model", ""))
+            label = f"{m} → {m}"
+        out.append(f"| {label} | {c['seed']} | "
                    f"{r['baseline']:.2f} | **{r['after']:.2f}** | {c['nights']} | "
                    f"{r.get('tokens','?')} |")
     if direct:

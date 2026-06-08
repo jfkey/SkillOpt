@@ -20,7 +20,7 @@ import sys
 import time
 from typing import Any, Dict, List
 
-from skillopt.sleep.backend import get_backend
+from skillopt.sleep.backend import build_backend, get_backend
 from skillopt.sleep.experiments.gbrain_bench import find_data_root, load_seed
 from skillopt.sleep.experiments.run_gbrain import run_seed as bench_seed
 from skillopt.sleep.experiments.run_transfer import run_seed as transfer_seed
@@ -29,6 +29,12 @@ from skillopt.sleep.experiments.run_transfer import run_seed as transfer_seed
 # Plans: lists of config dicts. Kept small per-run to bound cost/latency.
 def _direct_cfg(backend, model, seed, nights=2):
     return {"kind": "direct", "backend": backend, "model": model, "seed": seed, "nights": nights}
+
+
+def _dual_cfg(opt_backend, opt_model, tgt_backend, tgt_model, seed, nights=2):
+    # a 'direct' run on a DualBackend: strong optimizer proposes, weak target runs
+    return {"kind": "dual", "optimizer_backend": opt_backend, "optimizer_model": opt_model,
+            "target_backend": tgt_backend, "target_model": tgt_model, "seed": seed, "nights": nights}
 
 
 def _transfer_cfg(sb, sm, tb, tm, seed, nights=2):
@@ -42,11 +48,12 @@ PLANS: Dict[str, List[Dict[str, Any]]] = {
         _direct_cfg("claude", "haiku", "brief-writer", 1),
         _direct_cfg("codex", "", "brief-writer", 2),
     ],
-    # direct results across seeds + models, both backends
+    # SkillOpt-faithful: STRONG optimizer (sonnet) proposes, WEAK target (haiku)
+    # runs — the reliable config. Plus Codex self-optimized.
     "direct": [
-        _direct_cfg("claude", "haiku", "brief-writer"),
-        _direct_cfg("claude", "haiku", "advisor"),
-        _direct_cfg("claude", "sonnet", "brief-writer"),
+        _dual_cfg("claude", "sonnet", "claude", "haiku", "brief-writer"),
+        _dual_cfg("claude", "sonnet", "claude", "haiku", "advisor"),
+        _dual_cfg("claude", "sonnet", "claude", "haiku", "thorough-analyst"),
         _direct_cfg("codex", "", "brief-writer"),
         _direct_cfg("codex", "", "advisor"),
     ],
@@ -90,8 +97,15 @@ def run_one(cfg: Dict[str, Any], data_root: str, codex_path: str,
     seed = cfg["seed"]
     skill, tasks = load_seed(data_root, seed)
     t0 = time.time()
-    if cfg["kind"] == "direct":
-        be = get_backend(cfg["backend"], model=cfg.get("model", ""), codex_path=codex_path)
+    if cfg["kind"] in ("direct", "dual"):
+        if cfg["kind"] == "dual":
+            be = build_backend(
+                optimizer_backend=cfg["optimizer_backend"], optimizer_model=cfg.get("optimizer_model", ""),
+                target_backend=cfg["target_backend"], target_model=cfg.get("target_model", ""),
+                codex_path=codex_path,
+            )
+        else:
+            be = get_backend(cfg["backend"], model=cfg.get("model", ""), codex_path=codex_path)
         r = bench_seed(be, seed, skill, tasks, nights=cfg["nights"],
                        limit_replay=limit_replay, limit_holdout=limit_holdout)
         out = {"baseline": r["held_out_before"], "after": r["held_out_after"],

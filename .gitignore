@@ -54,3 +54,8 @@ docs/render_ablation_paper_tables.py
 docs/让*
 .gradio/
 .venv
+
+# Local experiment launchers — contain machine-specific endpoints/identities, never commit
+tests/run_*.sh
+tests/launch_*.py
+*.launch.log

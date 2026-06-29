@@ -108,8 +108,11 @@ REASONING_EFFORT: str | None = None
 
 _AZ_CLI_TOKEN_CACHE: dict[str, dict[str, Any]] = {}
 
-# Deployments that require Responses API
+# Deployments that require Responses API (not accessible via /chat/completions).
+# gpt-5.5 and other reasoning-first flagships are Responses-only on the Edge Proxy
+# gateway; add sibling gpt-5.x ids here if you switch target/optimizer to them.
 _RESPONSES_API_MODELS = {
+    "gpt-5.5",
     "gpt-5.3-codex", "gpt-5.1-codex", "gpt-5.2-codex",
     "gpt-5-codex", "codex-mini", "gpt-5.4-pro",
 }

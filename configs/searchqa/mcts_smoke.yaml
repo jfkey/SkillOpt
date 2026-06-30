@@ -1,0 +1,38 @@
+# SearchQA MCTS smoke test — real API, sized smaller than the linear baseline
+# (baseline: train40/sel40/test150, ~836 calls / 1.6M tok / ~9 min).
+# Goal: confirm the full MCTS chain (transition → CRN+SH value → frontier) runs
+# live and emits frontier.json with held-out test scores.  ~2 expansions.
+#
+#   set -a; source ./.env; set +a
+#   python scripts/train.py --config configs/searchqa/mcts_smoke.yaml \
+#       --out_root outputs/mcts_smoke
+_base_: ./default.yaml
+
+train:
+  train_size: 400
+  batch_size: 12         # stage-① train-evidence rollouts per node expansion
+  accumulation: 1
+
+gradient:
+  minibatch_size: 6
+  merge_batch_size: 6
+
+optimizer:
+  learning_rate: 4       # edit budget per transition
+
+search:
+  algo: mcts
+  budget: 4              # ≤4 candidate children evaluated → ~2 expansions
+  branch: 2
+  depth_limit: 2
+  c_explore: 1.5
+  patience: 3
+  lambda_cost: 0.0       # success-only navigation → max frontier spread to eyeball
+  max_iters: 6
+  sel_eval_num: 12       # |S| = CRN anchor list (vs baseline 40)
+  value_mode: paired     # CRN Δ + successive halving
+  n0: 4                  # SH: eval siblings on 4 tasks → keep top → grow 8 → 12
+  sh_eta: 2
+  test_eval_num: 20      # held-out test subset per frontier point (vs baseline 150)
+  eval_test: true
+  efficiency_eps: 0.02

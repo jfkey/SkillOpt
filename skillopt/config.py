@@ -211,6 +211,13 @@ def flatten_config(cfg: dict) -> dict:
             if key not in mapped_env_keys:
                 flat[key] = val
 
+    # Pass through the MCTS search section as a nested dict.  Kept nested
+    # (rather than flattened) so generic knob names like ``budget`` / ``seed``
+    # cannot collide with top-level training keys.
+    search_section = cfg.get("search", {})
+    if isinstance(search_section, dict) and search_section:
+        flat["search"] = dict(search_section)
+
     return flat
 
 

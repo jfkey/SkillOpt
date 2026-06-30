@@ -557,6 +557,15 @@ def main() -> None:
     # Build adapter
     adapter = get_adapter(cfg)
 
+    # Search algorithm switch: linear (default greedy trainer) vs mcts.
+    search_algo = str(cfg.get("search", {}).get("algo", "linear")).lower()
+    if search_algo == "mcts":
+        from skillopt.search.runner import run_mcts_search
+        summary = run_mcts_search(cfg, adapter)
+        if summary.get("frontier"):
+            print(f"  Frontier points: {len(summary['frontier'])}")
+        return
+
     # Build trainer and run
     from skillopt.engine.trainer import ReflACTTrainer
     trainer = ReflACTTrainer(cfg, adapter)

@@ -187,6 +187,14 @@ def process_one(
         "fail_reason": "",
         "agent_ok": False,
         "n_turns": 0,
+        # ── Deployment-cost channel (MCTS-SkillOpt, mcts_02 §1) ──────────
+        # Per-task token cost induced by the skill: the skill is prepended
+        # to the system prompt, so ``prompt_tokens`` already absorbs the
+        # resident skill-token cost; ``completion_tokens`` captures induced
+        # generation.  Headline cost = ``cost_total_tokens``.
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cost_total_tokens": 0,
     }
 
     try:
@@ -220,6 +228,13 @@ def process_one(
             result["response"] = response
             result["agent_ok"] = True
             result["n_turns"] = len(conversation)
+            # Exec backends do not surface token usage; fall back to a
+            # char/4 proxy so the cost channel is still populated.
+            est_prompt = (len(system) + len(user)) // 4
+            est_completion = sum(len(m.get("content", "")) for m in conversation) // 4
+            result["prompt_tokens"] = est_prompt
+            result["completion_tokens"] = est_completion
+            result["cost_total_tokens"] = est_prompt + est_completion
 
             with open(os.path.join(pred_dir, "target_system_prompt.txt"), "w") as f:
                 f.write(system)
@@ -264,10 +279,12 @@ def process_one(
 
         conversation: list[dict] = []
         response = ""
+        prompt_tokens = 0
+        completion_tokens = 0
 
         for turn in range(max_turns):
             if turn == 0:
-                resp_text, _ = chat_target(
+                resp_text, usage = chat_target(
                     system=system, user=user,
                     max_completion_tokens=max_completion_tokens,
                     retries=5, stage="rollout",
@@ -280,12 +297,17 @@ def process_one(
                     f"If correct, repeat it. If wrong, provide a corrected answer.\n"
                     f"Use <answer>...</answer> tags for your final answer."
                 )
-                resp_text, _ = chat_target(
+                resp_text, usage = chat_target(
                     system=system, user=refinement,
                     max_completion_tokens=max_completion_tokens,
                     retries=5, stage="rollout",
                     timeout=exec_timeout,
                 )
+
+            # Accumulate per-task deployment cost across turns.
+            if isinstance(usage, dict):
+                prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
+                completion_tokens += int(usage.get("completion_tokens", 0) or 0)
 
             response = resp_text
             conversation.append({"type": "message", "turn": turn + 1, "content": resp_text})
@@ -296,6 +318,9 @@ def process_one(
         result["response"] = response
         result["agent_ok"] = True
         result["n_turns"] = len(conversation)
+        result["prompt_tokens"] = prompt_tokens
+        result["completion_tokens"] = completion_tokens
+        result["cost_total_tokens"] = prompt_tokens + completion_tokens
 
         # Save conversation
         with open(os.path.join(pred_dir, "target_system_prompt.txt"), "w") as f:

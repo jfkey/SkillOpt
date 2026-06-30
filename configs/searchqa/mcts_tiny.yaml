@@ -1,0 +1,37 @@
+# Tiny end-to-end MCTS-SkillOpt config for SearchQA.
+# Purpose: smoke-test the whole search chain (transition → value → frontier)
+# cheaply, producing a real outputs/.../mcts/frontier.json.  Scale up
+# budget/branch/depth/sel_eval_num once this runs clean.
+#
+#   python scripts/train.py --config configs/searchqa/mcts_tiny.yaml \
+#       --optimizer_model gpt-5.5 --target_model gpt-5.5 --out_root outputs/mcts_tiny
+_base_: ./default.yaml
+
+train:
+  train_size: 400
+  batch_size: 8          # train-evidence rollouts per node expansion (stage ①)
+  accumulation: 1
+
+gradient:
+  minibatch_size: 4
+  merge_batch_size: 4
+
+optimizer:
+  learning_rate: 4       # edit budget per transition
+
+search:
+  algo: mcts
+  budget: 6              # max candidate node evaluations
+  branch: 3              # 3 siblings → SH has something to prune
+  depth_limit: 2
+  c_explore: 1.5
+  patience: 3
+  lambda_cost: 0.0       # start success-only (= PromptAgent-style) to validate
+  max_iters: 6
+  sel_eval_num: 8        # |S| = CRN anchor list
+  value_mode: paired     # CRN Δ + successive halving
+  n0: 4                  # SH: eval all siblings on 4 tasks, keep top, grow to 8
+  sh_eta: 2
+  test_eval_num: 8       # tiny test subset (valid_unseen)
+  eval_test: true
+  efficiency_eps: 0.02

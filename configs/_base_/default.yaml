@@ -91,6 +91,29 @@ evaluation:
   test_env_num: 0
   eval_test: true
 
+# Cost-aware multi-objective MCTS over the skill-version tree (see .record/mcts_*).
+# algo: linear  → the classic greedy 6-stage trainer (default, fully backward compatible).
+# algo: mcts    → UCT search producing a success-cost Pareto frontier.
+# Every key is overridable on the CLI, e.g. --cfg-options search.algo=mcts search.budget=24
+search:
+  algo: linear            # linear | mcts
+  budget: 24              # B: max candidate node evaluations (selection-rollout calls)
+  branch: 2               # b: candidate children grown per expansion
+  depth_limit: 4          # D: tree-depth cap (mcts_01 §6: 4-6)
+  c_explore: 2.5          # UCT exploration constant (PromptAgent uses 2.5)
+  patience: 5             # stop after this many iterations with no Pareto gain
+  lambda_cost: 0.3        # λ scalarization weight; selection/SH only (sweep at extraction)
+  max_iters: 50           # hard cap on selection iterations
+  sel_eval_num: 24        # fixed selection subset size = CRN anchor list |S|
+  value_mode: paired      # paired = CRN Δ + successive halving (M2) | full = ablation baseline
+  n0: 4                   # SH initial eval tasks per child (paired mode)
+  sh_eta: 2               # SH keep-top-1/η + grow-prefix-×η factor (paired mode)
+  granularity_moves: false # EXPAND includes abstract/refine moves (milestone 3)
+  expand_seed: 0          # base seed offset for expansion diversity across the b children
+  eval_test: true         # final test eval (valid_unseen) of frontier nodes
+  test_eval_num: 0        # test subset size (0 = full split)
+  efficiency_eps: 0.01    # efficiency-prior: keep success within ε of the best, min cost
+
 env:
   name: ""
   skill_init: ""

@@ -9,7 +9,22 @@ Any YAML key can be overridden from the command line::
 
     python scripts/train.py --config configs/alfworld/default.yaml \\
         --batch_size 40 --num_epochs 2 --seed 123
+    
+    python scripts/train.py --config configs/alfworld/default.yaml \
+        --num_epochs 1 --train_size 1 --batch_size 1 \
+        --minibatch_size 1 --merge_batch_size 1 \
+        --sel_env_num 1 --test_env_num 1 --eval_test false \
+        --max_steps 6 --workers 1 --max_api_workers 1 \
+        --optimizer_model gpt-4.1 --target_model gpt-4.1 --reasoning_effort ""
 
+    python scripts/train.py --config configs/searchqa/default.yaml \
+        --num_epochs 1 --train_size 2 --limit 2 --batch_size 1 \
+        --minibatch_size 1 --merge_batch_size 1 \
+        --sel_env_num 2 --test_env_num 1 --eval_test false \
+        --max_steps 6 --workers 1 --max_api_workers 1 \
+        --optimizer_model gpt-5.5 --target_model gpt-5.5 --reasoning_effort "medium"
+
+ 
 Run ``python scripts/train.py --help`` for a full list of options.
 """
 from __future__ import annotations

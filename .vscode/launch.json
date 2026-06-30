@@ -1,0 +1,70 @@
+{
+  // SkillOpt 调试配置。按 F5 选择对应配置（ALFWorld / SearchQA）。
+  // 凭据从工作区根目录的 .env 读取（envFile）。
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SkillOpt: ALFWorld (minimal debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/train.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "ALFWORLD_DATA": "${env:HOME}/.cache/alfworld"
+      },
+      "args": [
+        "--config", "configs/alfworld/default.yaml",
+        "--num_epochs", "1",
+        "--train_size", "1",
+        "--batch_size", "1",
+        "--minibatch_size", "1",
+        "--merge_batch_size", "1",
+        "--sel_env_num", "1",
+        "--test_env_num", "1",
+        "--eval_test", "false",
+        "--max_steps", "6",
+        "--workers", "1",
+        "--max_api_workers", "1",
+        "--optimizer_model", "gpt-4.1",
+        "--target_model", "gpt-4.1",
+        "--reasoning_effort", ""
+      ],
+      "justMyCode": false
+    },
+    {
+      // SearchQA 最小跑通：--limit 2 截断各 split，--train_size 2 覆盖配置默认 400（二者必须相等）。
+      "name": "SkillOpt: SearchQA (minimal debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/train.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
+      "args": [
+        "--config", "configs/searchqa/default.yaml",
+        "--num_epochs", "1",
+        "--train_size", "2",
+        "--limit", "2",
+        "--batch_size", "1",
+        "--minibatch_size", "1",
+        "--merge_batch_size", "1",
+        "--sel_env_num", "2",
+        "--test_env_num", "1",
+        "--eval_test", "false",
+        "--max_steps", "6",
+        "--workers", "1",
+        "--max_api_workers", "1",
+        "--optimizer_model", "gpt-4.1",
+        "--target_model", "gpt-4.1",
+        "--reasoning_effort", ""
+      ],
+      "justMyCode": false
+    }
+  ]
+}

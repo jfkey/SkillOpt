@@ -35,6 +35,8 @@ configs/**/*.local.yaml
 *.bak
 
 .env
+.env.*
+!.env.example
 .secrets/
 .codex_azure*/
 

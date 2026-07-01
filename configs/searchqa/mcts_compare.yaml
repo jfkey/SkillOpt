@@ -1,0 +1,53 @@
+# SearchQA MCTS comparison config — sized to mirror the LINEAR baseline run
+# outputs/skillopt_searchqa_gpt-5.5_20260630_111929 (test hard-EM 0.8800 → 0.9267).
+#
+# Baseline knobs reproduced here so the head-to-head is apples-to-apples:
+#   * same model / effort  : gpt-5.5, reasoning_effort=medium, max_turns=1, 16384 tok
+#   * same selection set    : sel_eval_num=40   (val/ folder, seed 42)  == sel_env_num
+#   * same held-out test set: test_eval_num=150 (test/ folder, seed 42)  == test_env_num
+#   * same train batch       : batch_size=20      == baseline batch_size
+#   * same merge/edit budget : merge_batch_size=8, edit_budget(learning_rate)=4
+#   * same gate metric       : hard EM (runner default)
+#
+# What is NECESSARILY different (MCTS has no linear analog):
+#   * no epochs / steps / LR schedule — search is governed by budget/branch/depth.
+#   * the deployed skill is the Pareto "perf" pick (max selection success), written
+#     to <out_root>/best_skill.md; its held-out score is frontier.json:test_success.
+#   * lambda_cost=0.0 → success-only navigation (fair accuracy comparison). Flip to
+#     e.g. 0.3 for the cost-aware Pareto story (the actual contribution of this variant).
+#
+# Run (from repo root, in the MCTS worktree):
+#   set -a; source ./.env; set +a
+#   python scripts/train.py --config configs/searchqa/mcts_compare.yaml \
+#       --optimizer_model gpt-5.5 --target_model gpt-5.5 \
+#       --out_root outputs/mcts_compare_$(date +%Y%m%d_%H%M%S)
+_base_: ./default.yaml
+
+train:
+  train_size: 400
+  batch_size: 20         # = baseline batch_size; train-evidence rollouts per node expansion
+  accumulation: 1
+
+gradient:
+  minibatch_size: 8
+  merge_batch_size: 8    # = baseline (feeds reflect→aggregate inside each transition)
+
+optimizer:
+  learning_rate: 4       # = baseline initial edit_budget (MCTS edit budget is fixed, no schedule)
+
+search:
+  algo: mcts
+  budget: 8              # ≤8 candidate skills value-estimated (~4 expansions at branch 2)
+  branch: 2              # siblings per expansion (gives SH something to prune)
+  depth_limit: 4         # match the baseline's ~4 accepted-step chain depth
+  c_explore: 1.5
+  patience: 4
+  lambda_cost: 0.0       # success-only navigation → apples-to-apples vs the cost-blind baseline
+  max_iters: 12
+  sel_eval_num: 40       # = baseline sel_env_num (CRN anchor list, val/ split)
+  value_mode: paired     # CRN Δ + successive halving
+  n0: 8                  # SH first-rung tasks before pruning
+  sh_eta: 2
+  test_eval_num: 150     # = baseline test_env_num → SAME held-out 150 items (seed 42, test/ split)
+  eval_test: true
+  efficiency_eps: 0.02

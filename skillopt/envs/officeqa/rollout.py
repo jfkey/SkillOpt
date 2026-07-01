@@ -137,6 +137,47 @@ def _message_debug_metadata(message: object) -> dict:
     if isinstance(metadata, dict):
         return metadata
     return {}
+
+
+def _accumulate_cost(sink: dict | None, usage: object) -> None:
+    """Add one model call's token usage into a per-task deployment-cost sink.
+
+    ``chat_target_messages`` returns ``(message, usage)``; this folds the usage
+    dict into ``sink`` so the multi-turn loop accumulates the full token cost
+    (prompt + completion across every tool turn) the skill induces.  See
+    ``skillopt/search/cost.py`` (MCTS-SkillOpt deployment-cost channel).
+    """
+    if sink is None or not isinstance(usage, dict):
+        return
+    sink["prompt_tokens"] = sink.get("prompt_tokens", 0) + int(usage.get("prompt_tokens", 0) or 0)
+    sink["completion_tokens"] = sink.get("completion_tokens", 0) + int(usage.get("completion_tokens", 0) or 0)
+
+
+def _tool_call_fields(tc: object) -> tuple[str, str, str, dict]:
+    """Normalize one tool call to ``(id, name, arguments_json, openai_dict)``.
+
+    Handles both shapes: OpenAI SDK pydantic objects (Chat Completions backends)
+    and plain dicts (gpt-5.5 / any Responses-API model, where
+    ``_responses_to_chat_message`` returns tool_calls as dicts). The returned
+    ``openai_dict`` is safe to put back on an assistant message — it round-trips
+    through ``_messages_to_responses_input`` on the next turn.
+    """
+    if isinstance(tc, dict):
+        fn = tc.get("function", {}) or {}
+        tc_id = str(tc.get("id", "") or "")
+        name = str(fn.get("name", "") or "")
+        args = str(fn.get("arguments", "") or "")
+    else:
+        fn = getattr(tc, "function", None)
+        tc_id = str(getattr(tc, "id", "") or "")
+        name = str(getattr(fn, "name", "") or "")
+        args = str(getattr(fn, "arguments", "") or "")
+        if hasattr(tc, "model_dump"):
+            return tc_id, name, args, tc.model_dump(mode="json")
+    return tc_id, name, args, {
+        "id": tc_id, "type": "function",
+        "function": {"name": name, "arguments": args},
+    }
 def _build_user(
     item: dict,
     candidate_files: list[str] | None = None,
@@ -348,6 +389,7 @@ def _run_custom_search_process(
     search_max_num_results: int,
     search_timeout_seconds: int,
     oracle_context: str = "",
+    cost_sink: dict | None = None,
 ) -> tuple[str, str, str, str, list[dict], str, dict]:
     if not str(search_api_url or "").strip():
         raise ValueError("custom_search mode requires a non-empty search_api_url")
@@ -382,13 +424,14 @@ def _run_custom_search_process(
     fail_reason = ""
     last_response_metadata: dict = {}
     for turn in range(1, max_tool_turns + 1):
-        message, _ = chat_target_messages(
+        message, usage = chat_target_messages(
             messages=messages,
             max_completion_tokens=max_completion_tokens,
             retries=5,
             stage="rollout",
             return_message=True,
         )
+        _accumulate_cost(cost_sink, usage)
         response = message.content or ""
         final_response = response
         last_response_metadata = _message_debug_metadata(message)
@@ -435,6 +478,7 @@ def _run_azure_search_process(
     max_completion_tokens: int,
     diagnostic_mode: bool,
     diagnostic_instruction: str,
+    cost_sink: dict | None = None,
 ) -> tuple[str, str, str, str, list[dict], str, dict]:
     if get_target_backend() != "openai_chat":
         raise ValueError("azure_search mode is only supported with target_backend='openai_chat'")
@@ -450,7 +494,7 @@ def _run_azure_search_process(
         {"role": "user", "content": user},
     ]
     conversation: list[dict] = [{"role": "user", "content": user}]
-    message, _ = chat_target_messages(
+    message, usage = chat_target_messages(
         messages=messages,
         max_completion_tokens=max_completion_tokens,
         retries=5,
@@ -458,6 +502,7 @@ def _run_azure_search_process(
         return_message=True,
         tools=[{"type": "web_search"}],
     )
+    _accumulate_cost(cost_sink, usage)
     response = message.content or ""
     last_response_metadata = _message_debug_metadata(message)
     message_event = {"type": "message", "content": response}
@@ -476,6 +521,7 @@ def _run_offline_no_tools_process(
     diagnostic_instruction: str,
     candidate_files: list[str],
     oracle_context: str = "",
+    cost_sink: dict | None = None,
 ) -> tuple[str, str, str, str, list[dict], str, dict]:
     system = _build_system(skill_content, search_mode=_DEFAULT_SEARCH_MODE, use_local_tools=False)
     user = _build_user(
@@ -491,13 +537,14 @@ def _run_offline_no_tools_process(
         {"role": "user", "content": user},
     ]
     conversation: list[dict] = [{"role": "user", "content": user}]
-    message, _ = chat_target_messages(
+    message, usage = chat_target_messages(
         messages=messages,
         max_completion_tokens=max_completion_tokens,
         retries=5,
         stage="rollout",
         return_message=True,
     )
+    _accumulate_cost(cost_sink, usage)
     response = message.content or ""
     last_response_metadata = _message_debug_metadata(message)
     message_event = {"type": "message", "content": response}
@@ -578,6 +625,9 @@ def process_one(
     fail_reason = ""
     last_response_metadata: dict = {}
     allowed_files = [os.path.basename(path) for path in candidate_files]
+    # Per-task deployment-cost sink: accumulate prompt+completion tokens across
+    # every tool turn (MCTS-SkillOpt cost channel, skillopt/search/cost.py).
+    cost_sink: dict = {"prompt_tokens": 0, "completion_tokens": 0}
     try:
         if normalized_search_mode == _CUSTOM_SEARCH_MODE:
             system, user, final_response, final_answer, conversation, fail_reason, last_response_metadata = _run_custom_search_process(
@@ -594,6 +644,7 @@ def process_one(
                 search_max_num_results=search_max_num_results,
                 search_timeout_seconds=search_timeout_seconds,
                 oracle_context=oracle_context,
+                cost_sink=cost_sink,
             )
         elif normalized_search_mode == _AZURE_SEARCH_MODE:
             system, user, final_response, final_answer, conversation, fail_reason, last_response_metadata = _run_azure_search_process(
@@ -602,6 +653,7 @@ def process_one(
                 max_completion_tokens=max_completion_tokens,
                 diagnostic_mode=diagnostic_mode,
                 diagnostic_instruction=diagnostic_instruction,
+                cost_sink=cost_sink,
             )
         elif not use_local_tools:
             system, user, final_response, final_answer, conversation, fail_reason, last_response_metadata = _run_offline_no_tools_process(
@@ -612,6 +664,7 @@ def process_one(
                 diagnostic_instruction=diagnostic_instruction,
                 candidate_files=candidate_files,
                 oracle_context=oracle_context,
+                cost_sink=cost_sink,
             )
         elif is_target_exec_backend():
             from skillopt.model import azure_openai as _llm
@@ -647,7 +700,7 @@ def process_one(
                 {"role": "user", "content": user},
             ]
             for turn in range(1, max_tool_turns + 1):
-                message, _ = chat_target_messages(
+                message, usage = chat_target_messages(
                     messages=messages,
                     max_completion_tokens=max_completion_tokens,
                     retries=5,
@@ -656,22 +709,27 @@ def process_one(
                     tool_choice="auto",
                     return_message=True,
                 )
+                _accumulate_cost(cost_sink, usage)
                 response = message.content or ""
                 final_response = response
+                tool_calls = getattr(message, "tool_calls", None)
                 assistant_message = {"role": "assistant", "content": response}
-                if getattr(message, "tool_calls", None):
-                    assistant_message["tool_calls"] = [tool_call.model_dump(mode="json") for tool_call in message.tool_calls]
+                if tool_calls:
+                    assistant_message["tool_calls"] = [_tool_call_fields(tc)[3] for tc in tool_calls]
                 messages.append(assistant_message)
                 conversation.append({"type": "message", "content": response})
-                if getattr(message, "tool_calls", None):
-                    for tool_call in message.tool_calls:
-                        tool_name = tool_call.function.name
-                        arguments = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+                if tool_calls:
+                    for tc in tool_calls:
+                        tc_id, tool_name, raw_args, _ = _tool_call_fields(tc)
+                        try:
+                            arguments = json.loads(raw_args) if raw_args else {}
+                        except (json.JSONDecodeError, TypeError):
+                            arguments = {}
                         cmd, obs = run_tool(tool_name, arguments, allowed_roots=docs_roots, allowed_files=allowed_files)
                         conversation.append({"type": "tool_call", "cmd": cmd, "obs": obs})
                         messages.append({
                             "role": "tool",
-                            "tool_call_id": tool_call.id,
+                            "tool_call_id": tc_id,
                             "content": obs,
                         })
                     continue
@@ -691,6 +749,16 @@ def process_one(
         f.write(user)
     with open(os.path.join(pred_dir, "conversation.json"), "w", encoding="utf-8") as f:
         json.dump(conversation, f, ensure_ascii=False, indent=2)
+    # Deployment cost (MCTS-SkillOpt): real prompt+completion tokens summed over
+    # every tool turn when the backend surfaces usage; otherwise (e.g. exec
+    # backend) a char/4 proxy so the cost channel is never silently zero.
+    prompt_tokens = int(cost_sink.get("prompt_tokens", 0))
+    completion_tokens = int(cost_sink.get("completion_tokens", 0))
+    if prompt_tokens + completion_tokens == 0:
+        prompt_tokens = (len(system) + len(user)) // 4
+        completion_tokens = sum(
+            len(str(m.get("content", "") or m.get("obs", ""))) for m in conversation
+        ) // 4
     eval_result = evaluate(final_answer, item.get("ground_truth", "")) if final_answer else {"em": 0.0, "f1": 0.0, "predicted_answer": "", "gold_answer": item.get("ground_truth", "")}
     result = {
         "id": item_id,
@@ -710,6 +778,13 @@ def process_one(
         "fail_reason": fail_reason or ("" if eval_result["em"] else f"predicted '{eval_result['predicted_answer']}' but expected '{item.get('ground_truth', '')}'"),
         "agent_ok": not fail_reason,
         "n_turns": len(conversation),
+        # ── Deployment-cost channel (MCTS-SkillOpt, mcts_02 §1) ──────────
+        # Headline cost = ``cost_total_tokens`` (prompt absorbs the resident
+        # skill; completion + extra tool turns capture skill-induced overhead).
+        # ``n_turns`` above is an alternative, more interpretable cost axis.
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "cost_total_tokens": prompt_tokens + completion_tokens,
         "last_finish_reason": last_response_metadata.get("finish_reason", ""),
         "target_system_prompt": system,
         "target_user_prompt": user,

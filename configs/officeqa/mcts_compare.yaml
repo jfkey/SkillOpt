@@ -1,0 +1,55 @@
+# OfficeQA MCTS config — first multi-turn cost-aware Pareto run.
+#
+# Why OfficeQA: unlike SearchQA (single-turn, gpt-5.5 saturates at depth 1),
+# OfficeQA is a multi-turn tool task (max_tool_turns=24, local-doc search). It
+# gives (a) a real multi-step accuracy gradient for the tree to climb, and
+# (b) a NON-TRIVIAL cost axis — a better skill can cut OR add tool rounds, so
+# (success, cost) is a genuine tradeoff (not just "cost = skill length").
+#
+# ⚠️ PREREQUISITES before this can run:
+#   1. OfficeQA payload is gated — data/officeqa_split/{train,val,test} and
+#      data/officeqa_docs_official/ must be materialized (authorized HF access).
+#      The repo only ships data/officeqa_id_split (id manifest, no question/gt).
+#   2. cost_total_tokens is now wired into officeqa/rollout.py (all paths), so
+#      the MCTS cost axis is real per-turn tokens (n_turns is also exposed as an
+#      alternative, more interpretable cost axis).
+#
+# Sizing: OfficeQA rollouts are multi-turn → each is ~3-8× a SearchQA call.
+# Split sizes are small (train 50 / val 24 / test 172). This config is a
+# VALIDATE-FIRST starter (cheap). Scale budget/branch/depth/test_eval_num up
+# once the chain runs clean and you've eyeballed the per-rollout token cost.
+#
+# Run:
+#   set -a; source ./.env; set +a   # also needs OFFICEQA_CUSTOM_SEARCH_AUTH if search_mode=custom_search
+#   python scripts/train.py --config configs/officeqa/mcts_compare.yaml \
+#       --optimizer_model gpt-5.5 --target_model gpt-5.5 \
+#       --out_root outputs/officeqa_mcts_$(date +%Y%m%d_%H%M%S)
+_base_: ./default.yaml
+
+train:
+  batch_size: 8          # train-evidence rollouts per node expansion (multi-turn → keep small)
+  accumulation: 1
+
+gradient:
+  minibatch_size: 6
+  merge_batch_size: 6
+
+optimizer:
+  learning_rate: 4       # edit budget per transition
+
+search:
+  algo: mcts
+  budget: 4              # ≤4 candidate skills (~2 expansions) — cheap first run
+  branch: 2
+  depth_limit: 2         # bump to 4+ once cost is understood and gradient confirmed
+  c_explore: 1.5
+  patience: 3
+  lambda_cost: 0.3       # cost-aware navigation → the multi-turn Pareto story (set 0.0 to validate accuracy first)
+  max_iters: 6
+  sel_eval_num: 12       # CRN anchor list (val has 24; use half to start)
+  value_mode: paired     # CRN Δ + successive halving
+  n0: 4
+  sh_eta: 2
+  test_eval_num: 16      # held-out subset (test has 172) — small; multi-turn test eval is the cost bottleneck
+  eval_test: true
+  efficiency_eps: 0.02
